@@ -16,18 +16,47 @@ pub async fn fetch_schema(pool: &MySqlPool) -> Result<Vec<Table>, sqlx::Error> {
     .fetch_all(pool)
     .await?;
 
+
     // Group rows by table
     let mut tables: std::collections::HashMap<String, Vec<Column>> =
         std::collections::HashMap::new();
 
     for row in rows {
-        let table_name: String = row.try_get("table_name")?;
-        let column_name: String = row.try_get("column_name")?;
-        let column_type: String = row.try_get("column_type")?;
-        let is_nullable: String = row.try_get("is_nullable")?;
-        let column_default: Option<String> = row.try_get("column_default").ok();
-        let extra: Option<String> = row.try_get("extra").ok();
-        let column_key: Option<String> = row.try_get("column_key").ok();
+        let table_name: String = String::from_utf8(
+            row.try_get::<Vec<u8>, _>("TABLE_NAME")?
+        ).unwrap_or_default();
+        
+        let column_name: String = String::from_utf8(
+            row.try_get::<Vec<u8>, _>("COLUMN_NAME")?
+        ).unwrap_or_default();
+        
+        let column_type: String = String::from_utf8(
+            row.try_get::<Vec<u8>, _>("COLUMN_TYPE")?
+        ).unwrap_or_default();
+        let is_nullable: String = String::from_utf8(
+            row.try_get::<Vec<u8>, _>("IS_NULLABLE")?
+        ).unwrap_or_default();
+        
+        let column_default: Option<String> = row
+            .try_get::<Option<Vec<u8>>, _>("COLUMN_DEFAULT")
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v).ok())
+            .filter(|s| !s.is_empty());
+        
+        let extra: Option<String> = row
+            .try_get::<Option<Vec<u8>>, _>("EXTRA")
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v).ok())
+            .filter(|s| !s.is_empty());
+        
+        let column_key: Option<String> = row
+            .try_get::<Option<Vec<u8>>, _>("COLUMN_KEY")
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v).ok())
+            .filter(|s| !s.is_empty());
 
         let column = Column {
             name: column_name,
@@ -50,6 +79,8 @@ pub async fn fetch_schema(pool: &MySqlPool) -> Result<Vec<Table>, sqlx::Error> {
         })
         .collect();
 
+    println!("fetch_schema: result: {:?}", result);
+
     Ok(result)
 }
 
@@ -67,6 +98,7 @@ pub async fn fetch_create_table(pool: &MySqlPool, table_name: &str) -> Result<St
 /// Fetch schema with full CREATE TABLE for each table (for new tables)
 pub async fn fetch_schema_with_create(pool: &MySqlPool) -> Result<Vec<Table>, sqlx::Error> {
     let mut tables = fetch_schema(pool).await?;
+    println!("fetch_schema_with_create: tables: {:?}", tables);
     for table in &mut tables {
         if let Ok(create_sql) = fetch_create_table(pool, &table.name).await {
             table.create_sql = Some(create_sql);
